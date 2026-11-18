@@ -44,7 +44,9 @@ export class PersistenceService {
   start(): void {
     if (this.flushTimer) return;
     this.flushTimer = setInterval(() => {
-      void this.flushEvents();
+      this.flushEvents().catch((err) => {
+        console.error('[Persistence] Periodic event flush failed:', err);
+      });
     }, this.flushIntervalMs);
     this.flushTimer.unref();
   }

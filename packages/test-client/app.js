@@ -21,6 +21,9 @@
     chkSpectator: document.getElementById('chkSpectator'),
     btnJoinRoom: document.getElementById('btnJoinRoom'),
     btnLeaveRoom: document.getElementById('btnLeaveRoom'),
+    availableRoomsBox: document.getElementById('availableRoomsBox'),
+    btnRefreshRooms: document.getElementById('btnRefreshRooms'),
+    availableRoomsList: document.getElementById('availableRoomsList'),
 
     roomInfoBox: document.getElementById('roomInfoBox'),
     roomCodeLabel: document.getElementById('roomCodeLabel'),
@@ -53,7 +56,19 @@
   let localJumpState = new Map(); // playerId -> { totalJumps, rpm, autoTimer, bleConnected }
   let countdownEndServerTime = null;
   let uiTicker = null;
+  let roomListTimer = null;
   let ropeSeq = 1;
+
+  const MAX_LOG_ENTRIES = 200;
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
   function log(msg, type = 'info') {
     const row = document.createElement('div');
@@ -61,6 +76,9 @@
     const time = new Date().toLocaleTimeString('zh-TW', { hour12: false });
     row.textContent = `[${time}] ${msg}`;
     ui.eventLog.prepend(row);
+    while (ui.eventLog.children.length > MAX_LOG_ENTRIES) {
+      ui.eventLog.lastElementChild?.remove();
+    }
   }
 
   function setConnStatus(connected) {
@@ -73,6 +91,18 @@
     ui.btnCreateRoom.disabled = !connected;
     ui.btnJoinRoom.disabled = !connected;
     ui.btnLeaveRoom.disabled = !connected || !sdk?.getCurrentRoom();
+    if (!connected) {
+      if (roomListTimer) {
+        clearInterval(roomListTimer);
+        roomListTimer = null;
+      }
+      if (uiTicker) {
+        clearInterval(uiTicker);
+        uiTicker = null;
+      }
+      ui.availableRoomsBox.classList.add('hidden');
+      ui.availableRoomsList.innerHTML = '';
+    }
   }
 
   function resolveServerUrl() {
@@ -95,6 +125,7 @@
       ui.clientIdLabel.textContent = reg.clientInstanceId;
       setConnStatus(true);
       log(`Connected as ${reg.clientInstanceId} (max local: ${reg.maxLocalPlayers})`, 'ok');
+      startRoomListPolling();
     });
 
     sdk.on('disconnected', ({ reason }) => {
@@ -106,6 +137,8 @@
       setConnStatus(true);
       log(`Reconnected! Snapshot=${restoredSnapshot ? restoredSnapshot.status : 'none'}, Replays=${replayResults.length}`, 'ok');
       renderRoom(sdk.getCurrentRoom());
+      renderLocalPlayers();
+      startRoomListPolling();
       if (restoredSnapshot) renderSnapshot(restoredSnapshot);
     });
 
@@ -116,6 +149,8 @@
 
     sdk.on('room:updated', (room) => {
       renderRoom(room);
+      renderLocalPlayers();
+      void refreshAvailableRooms();
       ui.btnLeaveRoom.disabled = !sdk.isConnected() || !room;
     });
 
@@ -223,9 +258,46 @@
     if (countEl) countEl.textContent = String(st.totalJumps);
   }
 
+  function getReadyButtonState({
+    inRoom,
+    isParticipant,
+    isReady,
+    roomStatus,
+    hasOtherUnready,
+    labels,
+  }) {
+    const canToggle = roomStatus === 'WAITING' || roomStatus === 'READY';
+    if (!inRoom) {
+      return { cls: 'btn-secondary', text: labels.idle, disabled: true };
+    }
+    if (!isParticipant) {
+      return { cls: 'btn-secondary', text: labels.spectator || labels.idle, disabled: true };
+    }
+    if (!canToggle) {
+      const statusText =
+        roomStatus === 'PLAYING'
+          ? '比賽中'
+          : roomStatus === 'COUNTDOWN'
+            ? '倒數中'
+            : '已結束';
+      return {
+        cls: isReady ? 'btn-success' : 'btn-secondary',
+        text: labels.locked ? labels.locked : statusText,
+        disabled: true,
+      };
+    }
+    if (!isReady) {
+      return { cls: 'btn-secondary', text: labels.idle, disabled: false };
+    }
+    return hasOtherUnready
+      ? { cls: 'btn-warn', text: labels.waitingOthers, disabled: false }
+      : { cls: 'btn-success', text: labels.allReady, disabled: false };
+  }
+
   function renderLocalPlayers() {
     ui.localPlayersList.innerHTML = '';
     const players = sdk ? sdk.getLocalPlayers() : [];
+    const room = sdk ? sdk.getCurrentRoom() : null;
 
     for (const p of players) {
       let st = localJumpState.get(p.playerId);
@@ -234,15 +306,35 @@
         localJumpState.set(p.playerId, st);
       }
 
+      const roomPlayer = room?.players.find((rp) => rp.playerId === p.playerId);
+      const hasOtherUnready = room
+        ? room.players.some(
+            (rp) => rp.role !== 'SPECTATOR' && rp.playerId !== p.playerId && !rp.ready,
+          )
+        : false;
+      const readyUi = getReadyButtonState({
+        inRoom: Boolean(room && roomPlayer),
+        isParticipant: Boolean(roomPlayer && roomPlayer.role !== 'SPECTATOR'),
+        isReady: Boolean(roomPlayer?.ready),
+        roomStatus: room?.status,
+        hasOtherUnready,
+        labels: {
+          idle: '準備',
+          spectator: '觀賽中',
+          waitingOthers: '⏳ 等待其他人準備 (取消)',
+          allReady: '✅ 已準備 (取消)',
+        },
+      });
+
       const card = document.createElement('div');
       card.className = 'player-card';
       card.innerHTML = `
         <div class="player-card-top">
           <div>
-            <strong>${p.displayName}</strong>
-            <div style="font-size:12px;color:#94a3b8;">${p.deviceId || '無設備'} | ID: ${p.playerId}</div>
+            <strong>${escapeHtml(p.displayName)}</strong>
+            <div style="font-size:12px;color:#94a3b8;">${escapeHtml(p.deviceId || '無設備')} | ID: ${escapeHtml(p.playerId)}</div>
           </div>
-          <div>跳數: <strong id="jumps-${p.playerId}">${st.totalJumps}</strong></div>
+          <div>跳數: <strong id="jumps-${escapeHtml(p.playerId)}">${st.totalJumps}</strong></div>
         </div>
         <div class="player-card-actions">
           <button class="btn btn-primary btn-jump">+1 跳</button>
@@ -252,7 +344,7 @@
           <button class="btn ${st.bleConnected ? 'btn-success' : 'btn-danger'} btn-ble">
             ${st.bleConnected ? 'BLE 已連線' : 'BLE 已斷線'}
           </button>
-          <button class="btn btn-secondary btn-ready">準備</button>
+          <button class="btn ${readyUi.cls} btn-ready" ${readyUi.disabled ? 'disabled' : ''}>${readyUi.text}</button>
           <button class="btn btn-danger btn-remove">移除</button>
         </div>
       `;
@@ -286,9 +378,11 @@
 
       card.querySelector('.btn-ready').onclick = async () => {
         try {
-          const room = sdk.getCurrentRoom();
-          const current = room?.players.find((rp) => rp.playerId === p.playerId);
-          await sdk.setReady(p.playerId, !(current?.ready ?? false));
+          const currentRoom = sdk.getCurrentRoom();
+          const current = currentRoom?.players.find((rp) => rp.playerId === p.playerId);
+          const updatedRoom = await sdk.setReady(p.playerId, !(current?.ready ?? false));
+          renderRoom(updatedRoom);
+          renderLocalPlayers();
         } catch (err) {
           log(`Ready error: ${err.message}`, 'err');
         }
@@ -309,6 +403,81 @@
     }
   }
 
+  function startRoomListPolling() {
+    if (roomListTimer) clearInterval(roomListTimer);
+    void refreshAvailableRooms();
+    roomListTimer = setInterval(() => {
+      const status = sdk?.getCurrentRoom()?.status;
+      if (sdk?.isConnected() && status !== 'PLAYING' && status !== 'COUNTDOWN') {
+        void refreshAvailableRooms();
+      }
+    }, 3000);
+  }
+
+  async function joinRoomByCode(code) {
+    const normalized = String(code || '').trim().toUpperCase();
+    if (!normalized) return;
+    ui.inputRoomCode.value = normalized;
+    try {
+      const res = await sdk.joinRoom(normalized, {
+        asSpectator: ui.chkSpectator.checked,
+      });
+      log(`Joined room ${res.room.roomCode}`, 'ok');
+    } catch (err) {
+      log(`Join room failed [${err.code}]: ${err.message}`, 'err');
+    }
+  }
+
+  async function refreshAvailableRooms() {
+    if (!sdk || !sdk.isConnected()) {
+      ui.availableRoomsBox.classList.add('hidden');
+      return;
+    }
+    ui.availableRoomsBox.classList.remove('hidden');
+    try {
+      const res = await fetch(`${resolveServerUrl()}/api/rooms`);
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      }
+      renderAvailableRooms(data.rooms || []);
+    } catch (err) {
+      log(`Fetch rooms failed: ${err.message}`, 'err');
+    }
+  }
+
+  function renderAvailableRooms(rooms) {
+    ui.availableRoomsList.innerHTML = '';
+    if (!rooms.length) {
+      ui.availableRoomsList.innerHTML =
+        '<div class="room-list-empty">目前尚無已建立的房間，請先建立房間。</div>';
+      return;
+    }
+
+    const currentRoom = sdk?.getCurrentRoom();
+    for (const room of rooms) {
+      const playerCount = room.players.filter((p) => p.role !== 'SPECTATOR').length;
+      const isCurrent = currentRoom?.roomId === room.roomId;
+      const row = document.createElement('div');
+      row.className = 'room-list-row';
+      row.innerHTML = `
+        <div>
+          <strong>${escapeHtml(room.roomCode)}</strong>
+          <span style="color:#94a3b8;margin-left:8px;">${escapeHtml(room.gameModeId)} · ${escapeHtml(room.status)} · ${playerCount}/${room.maxPlayers} 人</span>
+        </div>
+        <button class="btn ${isCurrent ? 'btn-success' : 'btn-primary'} btn-join-item" ${isCurrent ? 'disabled' : ''}>
+          ${isCurrent ? '已在此房' : '加入'}
+        </button>
+      `;
+
+      row.querySelector('.btn-join-item').onclick = () => {
+        void joinRoomByCode(room.roomCode);
+      };
+
+      ui.availableRoomsList.appendChild(row);
+    }
+  }
+
   function renderRoom(room) {
     if (!room) {
       ui.roomInfoBox.classList.add('hidden');
@@ -320,12 +489,40 @@
     ui.roomModeLabel.textContent = room.gameModeId;
     ui.roomStateLabel.textContent = room.status;
 
+    const localIds = new Set((sdk ? sdk.getLocalPlayers() : []).map((lp) => lp.playerId));
+    const localParticipants = room.players.filter(
+      (rp) => localIds.has(rp.playerId) && rp.role !== 'SPECTATOR',
+    );
+    const allLocalReady =
+      localParticipants.length > 0 && localParticipants.every((rp) => rp.ready);
+    const hasOtherUnready = room.players.some(
+      (rp) => rp.role !== 'SPECTATOR' && !localIds.has(rp.playerId) && !rp.ready,
+    );
+    const readyAllUi = getReadyButtonState({
+      inRoom: true,
+      isParticipant: localParticipants.length > 0,
+      isReady: allLocalReady,
+      roomStatus: room.status,
+      hasOtherUnready,
+      labels: {
+        idle: '全部本地玩家準備',
+        locked: '全部本地玩家準備',
+        waitingOthers: '⏳ 等待其他人準備 (取消全部)',
+        allReady: '✅ 全員已準備 (取消全部)',
+      },
+    });
+
+    ui.btnReadyAll.disabled = readyAllUi.disabled;
+    ui.btnReadyAll.classList.remove('btn-secondary', 'btn-warn', 'btn-success');
+    ui.btnReadyAll.classList.add(readyAllUi.cls);
+    ui.btnReadyAll.textContent = readyAllUi.text;
+
     ui.roomPlayersTable.innerHTML = '';
     for (const p of room.players) {
       const row = document.createElement('div');
       row.className = 'room-player-row';
       row.innerHTML = `
-        <span>${p.displayName} (${p.role})</span>
+        <span>${escapeHtml(p.displayName)} (${escapeHtml(p.role)})</span>
         <span>${p.connectionStatus === 'CONNECTED' ? '🟢' : '🔴'} ${p.ready ? '✅ 已準備' : '⏳ 未準備'}</span>
       `;
       ui.roomPlayersTable.appendChild(row);
@@ -374,7 +571,7 @@
       row.className = `score-row ${s.eliminated ? 'eliminated' : ''}`;
       row.innerHTML = `
         <strong>#${s.rank}</strong>
-        <span>${s.displayName}</span>
+        <span>${escapeHtml(s.displayName)}</span>
         <span>${s.jumpCount} 跳</span>
         <span>${Math.round(s.rpm)} RPM</span>
         <strong>${s.score} 分</strong>
@@ -388,7 +585,7 @@
     ui.resultSummary.innerHTML = result.participants
       .map(
         (p) =>
-          `<div>#${p.rank} <strong>${p.displayName}</strong> — ${p.finalScore} 分 (${p.jumpCount} 跳) [${p.outcome}]</div>`,
+          `<div>#${p.rank} <strong>${escapeHtml(p.displayName)}</strong> — ${p.finalScore} 分 (${p.jumpCount} 跳) [${escapeHtml(p.outcome)}]</div>`,
       )
       .join('');
   }
@@ -456,6 +653,10 @@
     }
   };
 
+  ui.btnRefreshRooms.onclick = () => {
+    void refreshAvailableRooms();
+  };
+
   ui.btnCreateRoom.onclick = async () => {
     try {
       const durationSec = Number(ui.inputDurationSec.value) || 30;
@@ -464,29 +665,24 @@
         config: { durationMs: durationSec * 1000 },
       });
       log(`Created room ${room.roomCode} (${room.gameModeId})`, 'ok');
+      void refreshAvailableRooms();
     } catch (err) {
       log(`Create room failed [${err.code}]: ${err.message}`, 'err');
     }
   };
 
-  ui.btnJoinRoom.onclick = async () => {
-    try {
-      const code = ui.inputRoomCode.value.trim().toUpperCase();
-      if (!code) return;
-      const res = await sdk.joinRoom(code, {
-        asSpectator: ui.chkSpectator.checked,
-      });
-      log(`Joined room ${res.room.roomCode}`, 'ok');
-    } catch (err) {
-      log(`Join room failed [${err.code}]: ${err.message}`, 'err');
-    }
+  ui.btnJoinRoom.onclick = () => {
+    void joinRoomByCode(ui.inputRoomCode.value);
   };
 
   ui.btnLeaveRoom.onclick = async () => {
     try {
       stopAllAutoRopes();
+      countdownEndServerTime = null;
       await sdk.leaveRoom();
       renderRoom(null);
+      renderLocalPlayers();
+      void refreshAvailableRooms();
       log('Left room');
     } catch (err) {
       log(`Leave room failed: ${err.message}`, 'err');
@@ -495,7 +691,18 @@
 
   ui.btnReadyAll.onclick = async () => {
     try {
-      await sdk.setAllLocalPlayersReady(true);
+      const room = sdk.getCurrentRoom();
+      const localIds = new Set(sdk.getLocalPlayers().map((lp) => lp.playerId));
+      const localParticipants = (room?.players || []).filter(
+        (rp) => localIds.has(rp.playerId) && rp.role !== 'SPECTATOR',
+      );
+      const allLocalReady =
+        localParticipants.length > 0 && localParticipants.every((rp) => rp.ready);
+      const updatedRoom = await sdk.setAllLocalPlayersReady(!allLocalReady);
+      if (updatedRoom) {
+        renderRoom(updatedRoom);
+        renderLocalPlayers();
+      }
     } catch (err) {
       log(`Ready all failed: ${err.message}`, 'err');
     }
@@ -512,6 +719,7 @@
   ui.btnResetRoom.onclick = async () => {
     try {
       stopAllAutoRopes();
+      countdownEndServerTime = null;
       const durationSec = Number(ui.inputDurationSec.value) || 30;
       await sdk.resetRoom({
         gameModeId: ui.selectMode.value,

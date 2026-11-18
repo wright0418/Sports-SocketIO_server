@@ -233,6 +233,8 @@ export class RoomManager {
     if (room.players.size === 0) {
       room.status = RoomState.CLOSED;
       const snapshot = this.toSnapshot(room);
+      this.rooms.delete(room.roomId);
+      this.roomCodeToId.delete(room.roomCode);
       void this.persistence.saveRoom(snapshot).catch(() => {});
       return { room: snapshot, removedPlayerIds };
     }

@@ -220,6 +220,30 @@ select {
   font-size: 13px;
 }
 
+.room-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.room-list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.room-list-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 2px;
+}
+
 .match-arena {
   margin-top: 14px;
   padding: 12px;

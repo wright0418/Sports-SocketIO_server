@@ -32,10 +32,13 @@ interface ManagedMatch extends ActiveMatchContext {
   scoreDirty: boolean;
 }
 
+const MAX_FINISHED_RESULTS_CACHE = 200;
+
 export class MatchManager {
   private readonly activeMatches = new Map<string, ManagedMatch>();
   private readonly finishedResults = new Map<string, MatchResult>();
   private tickLoopTimer: NodeJS.Timeout | null = null;
+  private isTicking = false;
 
   constructor(
     private readonly io: SocketIOServer,
@@ -149,7 +152,9 @@ export class MatchManager {
       });
 
       managed.countdownTimer = setTimeout(() => {
-        void this.beginPlaying(matchId);
+        this.beginPlaying(matchId).catch((err) => {
+          console.error(`[MatchManager] Failed to begin playing match ${matchId}:`, err);
+        });
       }, countdownMs);
       managed.countdownTimer.unref();
     } else {
@@ -315,6 +320,10 @@ export class MatchManager {
 
     const result = match.mode.finish(now, reason);
     this.finishedResults.set(matchId, result);
+    if (this.finishedResults.size > MAX_FINISHED_RESULTS_CACHE) {
+      const oldestKey = this.finishedResults.keys().next().value;
+      if (oldestKey) this.finishedResults.delete(oldestKey);
+    }
     this.activeMatches.delete(matchId);
 
     const finalSnapshot = this.buildSnapshot(match, now);
@@ -374,64 +383,70 @@ export class MatchManager {
   }
 
   private async processTicks(): Promise<void> {
-    const now = Date.now();
-    for (const match of Array.from(this.activeMatches.values())) {
-      if (match.status !== MatchState.PLAYING) continue;
+    if (this.isTicking) return;
+    this.isTicking = true;
+    try {
+      const now = Date.now();
+      for (const match of Array.from(this.activeMatches.values())) {
+        if (match.status !== MatchState.PLAYING) continue;
 
-      const tickOutcome = match.mode.tick(now);
+        const tickOutcome = match.mode.tick(now);
 
-      if (tickOutcome.stateChanged || tickOutcome.scoreChanged) {
-        match.stateVersion += 1;
+        if (tickOutcome.stateChanged || tickOutcome.scoreChanged) {
+          match.stateVersion += 1;
+        }
+
+        if (tickOutcome.broadcastEvent) {
+          this.io.to(match.room.roomId).emit(ServerEvents.GAME_EVENT, {
+            matchId: match.matchId,
+            roomId: match.room.roomId,
+            eventType: tickOutcome.broadcastEvent.eventType,
+            payload: tickOutcome.broadcastEvent.payload,
+            serverTimestamp: now,
+          });
+        }
+
+        if (tickOutcome.stateChanged) {
+          this.io
+            .to(match.room.roomId)
+            .emit(ServerEvents.GAME_STATE, this.buildSnapshot(match, now));
+        }
+
+        if (
+          (match.scoreDirty || tickOutcome.scoreChanged) &&
+          now - match.lastScoreBroadcastAt >= this.options.scoreBroadcastIntervalMs
+        ) {
+          match.lastScoreBroadcastAt = now;
+          match.scoreDirty = false;
+          const state = match.mode.getState();
+          this.io.to(match.room.roomId).emit(ServerEvents.SCORE_BROADCAST, {
+            matchId: match.matchId,
+            roomId: match.room.roomId,
+            serverNow: now,
+            stateVersion: match.stateVersion,
+            scores: state.scores,
+            teams: state.teams,
+          });
+        }
+
+        if (now - match.lastSnapshotPersistedAt >= this.options.snapshotIntervalMs) {
+          match.lastSnapshotPersistedAt = now;
+          const snap = this.buildSnapshot(match, now);
+          void this.persistence
+            .saveStateSnapshot(
+              match.matchId,
+              match.stateVersion,
+              snap as unknown as Record<string, unknown>,
+            )
+            .catch(() => {});
+        }
+
+        if (tickOutcome.matchShouldFinish) {
+          await this.finishMatch(match.matchId, tickOutcome.matchShouldFinish.reason);
+        }
       }
-
-      if (tickOutcome.broadcastEvent) {
-        this.io.to(match.room.roomId).emit(ServerEvents.GAME_EVENT, {
-          matchId: match.matchId,
-          roomId: match.room.roomId,
-          eventType: tickOutcome.broadcastEvent.eventType,
-          payload: tickOutcome.broadcastEvent.payload,
-          serverTimestamp: now,
-        });
-      }
-
-      if (tickOutcome.stateChanged) {
-        this.io
-          .to(match.room.roomId)
-          .emit(ServerEvents.GAME_STATE, this.buildSnapshot(match, now));
-      }
-
-      if (
-        (match.scoreDirty || tickOutcome.scoreChanged) &&
-        now - match.lastScoreBroadcastAt >= this.options.scoreBroadcastIntervalMs
-      ) {
-        match.lastScoreBroadcastAt = now;
-        match.scoreDirty = false;
-        const state = match.mode.getState();
-        this.io.to(match.room.roomId).emit(ServerEvents.SCORE_BROADCAST, {
-          matchId: match.matchId,
-          roomId: match.room.roomId,
-          serverNow: now,
-          stateVersion: match.stateVersion,
-          scores: state.scores,
-          teams: state.teams,
-        });
-      }
-
-      if (now - match.lastSnapshotPersistedAt >= this.options.snapshotIntervalMs) {
-        match.lastSnapshotPersistedAt = now;
-        const snap = this.buildSnapshot(match, now);
-        void this.persistence
-          .saveStateSnapshot(
-            match.matchId,
-            match.stateVersion,
-            snap as unknown as Record<string, unknown>,
-          )
-          .catch(() => {});
-      }
-
-      if (tickOutcome.matchShouldFinish) {
-        await this.finishMatch(match.matchId, tickOutcome.matchShouldFinish.reason);
-      }
+    } finally {
+      this.isTicking = false;
     }
   }
 

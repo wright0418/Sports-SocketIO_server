@@ -219,6 +219,9 @@ export function attachSocketGateway(deps: {
           clientInstanceId,
           input.playerId,
         );
+        if (roomId && !playerManager.getClientRoomIds(clientInstanceId).includes(roomId)) {
+          void socket.leave(roomId);
+        }
         return { player };
       });
     });
