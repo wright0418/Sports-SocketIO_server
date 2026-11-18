@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EduSports V2.0 — 多人跳繩競賽測試台</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>EduSports V2.0 測試遊戲台</h1>
+      <span class="badge" id="connStatusBadge">未連線</span>
+    </div>
+    <div class="meta-bar">
+      <span>Client ID: <strong id="clientIdLabel">-</strong></span>
+      <span>Server Offset: <strong id="clockOffsetLabel">0 ms</strong></span>
+      <span>RTT: <strong id="rttLabel">-</strong></span>
+      <button id="btnConnect" class="btn btn-primary">連線</button>
+      <button id="btnDisconnect" class="btn btn-warn" disabled>模擬斷線</button>
+      <button id="btnReconnect" class="btn btn-secondary" disabled>重新連線</button>
+    </div>
+  </header>
+
+  <main class="grid-layout">
+    <!-- 左欄：本地 BLE 跳繩玩家 (1-6) -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>1. 本地跳繩設備與玩家 (最多 6 位)</h2>
+        <div class="inline-actions">
+          <input id="inputPlayerName" type="text" placeholder="玩家名稱 (例: 小明)" />
+          <button id="btnAddPlayer" class="btn btn-primary" disabled>新增本地玩家</button>
+        </div>
+      </div>
+      <div id="localPlayersList" class="card-list"></div>
+    </section>
+
+    <!-- 中欄：房間與比賽控制 -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>2. 房間與賽局管理</h2>
+      </div>
+
+      <div class="room-controls">
+        <div class="control-group">
+          <label for="selectMode">遊戲模式</label>
+          <select id="selectMode">
+            <option value="multiplayer">multiplayer — 一般多人對戰</option>
+            <option value="bomb-pass">bomb-pass — 定時傳炸彈</option>
+          </select>
+          <label for="inputDurationSec">秒數</label>
+          <input id="inputDurationSec" type="number" value="30" min="5" max="300" style="width: 72px;" />
+          <button id="btnCreateRoom" class="btn btn-primary" disabled>建立房間</button>
+        </div>
+
+        <div class="control-group">
+          <input id="inputRoomCode" type="text" placeholder="輸入房號 (6 碼)" style="text-transform: uppercase;" />
+          <label class="checkbox-inline">
+            <input id="chkSpectator" type="checkbox" /> 觀賽者
+          </label>
+          <button id="btnJoinRoom" class="btn btn-secondary" disabled>加入房間</button>
+          <button id="btnLeaveRoom" class="btn btn-danger" disabled>離開</button>
+        </div>
+      </div>
+
+      <div id="roomInfoBox" class="room-info hidden">
+        <div class="room-summary">
+          <span>房號：<strong id="roomCodeLabel">-</strong></span>
+          <span>模式：<strong id="roomModeLabel">-</strong></span>
+          <span>狀態：<strong id="roomStateLabel">-</strong></span>
+        </div>
+        <div class="room-actions">
+          <button id="btnReadyAll" class="btn btn-secondary">全部本地玩家準備</button>
+          <button id="btnStartMatch" class="btn btn-success">房主開始比賽</button>
+          <button id="btnResetRoom" class="btn btn-warn">同房續玩 (Reset)</button>
+        </div>
+        <div id="roomPlayersTable" class="room-players"></div>
+      </div>
+
+      <!-- 比賽實況區 -->
+      <div id="matchArena" class="match-arena hidden">
+        <div class="arena-header">
+          <h3 id="arenaTitle">比賽進行中</h3>
+          <div class="timer-pill" id="matchTimerLabel">--.-- s</div>
+        </div>
+
+        <div id="bombArenaBox" class="bomb-box hidden">
+          <div class="bomb-status">
+            <span>💣 炸彈持有者：<strong id="bombHolderLabel">-</strong></span>
+            <span>跳繩進度：<strong id="bombJumpsLabel">0 / 5</strong></span>
+            <span>引爆倒數：<strong id="bombFuseLabel">-- s</strong></span>
+          </div>
+          <div class="fuse-bar-bg">
+            <div id="bombFuseBar" class="fuse-bar-fill"></div>
+          </div>
+          <div id="bombActionButtons" class="bomb-actions"></div>
+        </div>
+
+        <div id="scoreboardBox" class="scoreboard"></div>
+      </div>
+
+      <!-- 賽果區 -->
+      <div id="resultBox" class="result-box hidden">
+        <h3>比賽結果</h3>
+        <div id="resultSummary"></div>
+      </div>
+    </section>
+
+    <!-- 右欄：即時通訊與安全事件日誌 -->
+    <section class="panel log-panel">
+      <div class="panel-header">
+        <h2>3. SDK 事件與狀態日誌</h2>
+        <button id="btnClearLog" class="btn btn-secondary">清除</button>
+      </div>
+      <div id="eventLog" class="event-log"></div>
+    </section>
+  </main>
+
+  <script src="/sdk/edusports-sdk.global.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

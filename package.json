@@ -1,0 +1,23 @@
+{
+  "name": "edusports-platform",
+  "version": "2.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @edusports/shared && npm run build -w @edusports/sdk && npm run build -w @edusports/server",
+    "dev": "npm run dev -w @edusports/server",
+    "start": "npm run start -w @edusports/server",
+    "test": "npm run test -w @edusports/server",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
