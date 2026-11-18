@@ -3,6 +3,7 @@
 ## Software Requirements Specification（SRS）V2.0.1
 
 > **實作狀態與文件索引（以實際程式碼為準）**
+> - **運動遊戲 SDK 整合指南（給遊戲前端／開發 AI）**：[docs/sdk-integration-guide.md](./docs/sdk-integration-guide.md)
 > - **實作規劃與架構對照**：[docs/implementation-plan.md](./docs/implementation-plan.md)
 > - **REST API 與 Socket.IO 協議規範**：[docs/protocol.md](./docs/protocol.md)
 > - **Raspberry Pi 5 開發與容器部署指南**：[docs/deployment-pi5.md](./docs/deployment-pi5.md)
