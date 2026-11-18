@@ -75,10 +75,18 @@
     ui.btnLeaveRoom.disabled = !connected || !sdk?.getCurrentRoom();
   }
 
+  function resolveServerUrl() {
+    const url = new URL('.', window.location.href);
+    const cleanedPath = url.pathname
+      .replace(/\/test-client\/?$/, '')
+      .replace(/\/+$/, '');
+    return `${url.origin}${cleanedPath}`;
+  }
+
   function initSdk() {
     if (sdk) return sdk;
     sdk = new EduSportsMultiplayer({
-      serverUrl: window.location.origin,
+      serverUrl: resolveServerUrl(),
       modeId: ui.selectMode.value,
       tickThrottleMs: 200,
     });

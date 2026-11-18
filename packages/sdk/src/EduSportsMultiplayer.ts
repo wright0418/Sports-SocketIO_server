@@ -71,6 +71,8 @@ export class EduSportsMultiplayer {
     tokenOverride?: string;
   };
 
+  private readonly serverOrigin: string;
+  private readonly basePath: string;
   private socket: Socket | null = null;
   private token: string | null = null;
   private clientInstanceId: string | null = null;
@@ -117,6 +119,9 @@ export class EduSportsMultiplayer {
       tokenOverride: options.tokenOverride,
     };
     this.clientInstanceId = options.clientInstanceId ?? null;
+    const parsedUrl = new URL(this.options.serverUrl);
+    this.serverOrigin = parsedUrl.origin;
+    this.basePath = parsedUrl.pathname.replace(/\/+$/, '');
   }
 
   getClientInstanceId(): string | null {
@@ -212,7 +217,8 @@ export class EduSportsMultiplayer {
         this.socket.disconnect();
       }
 
-      const socket = io(this.options.serverUrl, {
+      const socket = io(this.serverOrigin, {
+        path: `${this.basePath}/socket.io`,
         auth: { token: this.token },
         reconnection: this.options.autoReconnect,
         reconnectionDelay: 300,
@@ -552,7 +558,9 @@ export class EduSportsMultiplayer {
   }
 
   private async fetchSessionToken(): Promise<void> {
-    const response = await fetch(`${this.options.serverUrl}/api/auth/session`, {
+    const response = await fetch(
+      `${this.serverOrigin}${this.basePath}/api/auth/session`,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

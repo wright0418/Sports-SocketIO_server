@@ -17,5 +17,25 @@ services:
       timeout: 5s
       retries: 10
 
+  server:
+    build: .
+    container_name: edusports-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      PORT: 3100
+      DATABASE_URL: postgresql://${POSTGRES_USER:-edusports}:${POSTGRES_PASSWORD:-edusports_pass}@postgres:5432/${POSTGRES_DB:-edusports}
+    ports:
+      - "127.0.0.1:3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   edusports_pgdata:

@@ -151,14 +151,13 @@ export function createHttpApp(deps: {
     }
   });
 
-  // Static hosting for SDK bundle and test-client HTML game
+  // Static hosting for SDK bundle and test-client HTML game (supports root and sub-path hosting)
   const sdkDistDir = path.resolve(__dirname, '../../../sdk/dist');
   const testClientDir = path.resolve(__dirname, '../../../test-client');
   app.use('/sdk', express.static(sdkDistDir));
+  app.use('/test-client/sdk', express.static(sdkDistDir));
   app.use('/test-client', express.static(testClientDir));
-  app.get('/', (_req, res) => {
-    res.redirect('/test-client/');
-  });
+  app.use('/', express.static(testClientDir));
 
   return app;
 }
