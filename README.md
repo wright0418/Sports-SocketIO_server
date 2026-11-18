@@ -2,6 +2,14 @@
 # Phase 1：自營遊戲跨區域多人競賽平台
 ## Software Requirements Specification（SRS）V2.0.1
 
+> **實作狀態與文件索引（以實際程式碼為準）**
+> - **實作規劃與架構對照**：[docs/implementation-plan.md](./docs/implementation-plan.md)
+> - **REST API 與 Socket.IO 協議規範**：[docs/protocol.md](./docs/protocol.md)
+> - **Raspberry Pi 5 開發與容器部署指南**：[docs/deployment-pi5.md](./docs/deployment-pi5.md)
+> - **個人網頁子路徑部署說明（`/games-server` & `/sports-server`）**：[docs/deployment-subpath.md](./docs/deployment-subpath.md)
+> - **Code Review 與最佳化紀錄**：[docs/code-review-and-optimization.md](./docs/code-review-and-optimization.md)
+> - **實作與初版 SRS 差異說明**：單一 `ClientInstance` 本地玩家上限已由初版 4 人擴充為 **6 人**（`MAX_LOCAL_PLAYERS_PER_CLIENT=6`）；賽局倒數階段房間狀態使用 `RoomState.STARTING`、賽局狀態使用 `MatchState.COUNTDOWN`；狀態與計分廣播整合於 `MatchManager` 與 `PersistenceService`。
+
 **文件狀態：** 開發規格草案  
 **開發階段：** Phase 1  
 **平台定位：** AIoT Sports Education & Multiplayer Game Platform  

@@ -29,14 +29,18 @@
 ```text
 GameServre-socketIO/
 ├── README.md
+├── GEMINI.md                     # 專案自動測試與容器部署規範
 ├── package.json                  # npm workspaces 根設定與共用腳本
 ├── tsconfig.base.json            # 共用 TypeScript 編譯設定
-├── docker-compose.yml            # PostgreSQL 16 (127.0.0.1:5432)
-├── .env.example                  # 環境變數範本（PORT, JWT_SECRET, DATABASE_URL, MAX_LOCAL_PLAYERS_PER_CLIENT 等）
+├── Dockerfile                    # Node.js 22 Alpine 多階段建置映像
+├── docker-compose.yml            # PostgreSQL 16 (5432) + Competition Server (3100, focker_net)
+├── .env.example                  # 環境變數範本（PORT, JWT_SECRET, DATABASE_URL, MAX_LOCAL_PLAYERS_PER_CLIENT, CORS_ORIGIN）
 ├── docs/
-│   ├── implementation-plan.md    # 本實作規劃書
-│   ├── protocol.md               # Socket.IO 與 REST API 協議文件
-│   └── deployment-pi5.md         # Raspberry Pi 5 部署指引
+│   ├── implementation-plan.md            # 本實作規劃書
+│   ├── protocol.md                       # Socket.IO 與 REST API 協議文件
+│   ├── deployment-pi5.md                 # Raspberry Pi 5 開發與容器部署指南
+│   ├── deployment-subpath.md             # 子路徑反向代理部署說明 (/games-server, /sports-server)
+│   └── code-review-and-optimization.md   # Code Review 與最佳化紀錄
 └── packages/
     ├── shared/                   # @edusports/shared：型別、Event Envelope、Zod Schema、Ack 規範、錯誤碼
     │   ├── package.json
@@ -44,30 +48,33 @@ GameServre-socketIO/
     │   └── src/
     │       ├── types/            # GameModeMetadata, RoomState, MatchState, DeviceState, RoomSnapshot
     │       ├── schemas/          # EventEnvelopeSchema, C2S Control Schemas, Mode Payload Schemas
-    │       ├── errors.ts         # ErrorCode 與 AckResponse<T> 工具
+    │       ├── errors.ts         # ErrorCode, PlatformError 與 AckResponse<T> 工具
     │       └── index.ts
     ├── sdk/                      # @edusports/sdk：瀏覽器端 EduSportsMultiplayer SDK（與 Server 同步開發驗證）
     │   ├── package.json
     │   ├── tsconfig.json
-    │   ├── tsup.config.ts        # 打包為 ESM/CJS 與 IIFE 單一瀏覽器檔（edusports-sdk.global.js）
+    │   ├── tsup.config.ts        # 打包為 ESM 與 IIFE 單一瀏覽器檔（edusports-sdk.global.js）
     │   └── src/
-    │       └── EduSportsMultiplayer.ts
+    │       ├── EduSportsMultiplayer.ts
+    │       └── index.ts
     ├── server/                   # @edusports/server：中央競賽伺服器
     │   ├── package.json
     │   ├── tsconfig.json
     │   ├── drizzle.config.ts
+    │   ├── vitest.config.ts
     │   ├── src/
     │   │   ├── config/           # 環境變數設定（含 MAX_LOCAL_PLAYERS_PER_CLIENT=6）
     │   │   ├── db/               # Drizzle Schema（10 張資料表）、Idempotent Migration、PersistenceService
-    │   │   ├── auth/             # JWT 簽發/驗證、Socket Auth Middleware
-    │   │   ├── http/             # Express REST API & 靜態檔託管 (/sdk, /test-client)
+    │   │   ├── auth/             # JWT 簽發/驗證 (jwt.ts)
+    │   │   ├── http/             # Express REST API & 靜態檔託管 (/, /test-client, /games-server, /sports-server)
     │   │   ├── socket/           # Socket.IO Gateway（標準 Ack 回應與心跳對時）
-    │   │   ├── managers/         # Player, Team, Room, Match, GameEvent, GameState, Score, History
-    │   │   ├── modes/            # Game Mode Server Modules（共用生命週期介面 + multiplayer + bomb-pass）
-    │   │   └── index.ts
+    │   │   ├── managers/         # PlayerManager, TeamManager, RoomManager, MatchManager, GameEventManager
+    │   │   ├── modes/            # Game Mode Server Modules（registry, types, multiplayerMode, bombPassMode）
+    │   │   ├── app.ts            # createPlatformServer 組裝入口
+    │   │   └── index.ts          # CLI 啟動入口
     │   └── test/
     │       └── platform.test.ts  # Vitest 整合與安全性測試（直接透過真實 SDK 執行）
-    └── test-client/              # 純 HTML + Vanilla JS 測試網頁（模擬 1~6 支 BLE 跳繩）
+    └── test-client/              # 純 HTML + Vanilla JS 測試網頁（模擬 1~6 支 BLE 跳繩、開放房間列表）
         ├── index.html
         ├── app.js
         └── styles.css
@@ -120,14 +127,13 @@ GameServre-socketIO/
 
 #### A. 核心 Managers 分工
 
-1. **Auth & Session Service**：核發與驗證含 `clientInstanceId`、`allowedModeIds`、`origin` 之短效 JWT，並保護 Socket.IO 連線。
-2. **PlayerManager & Device Registry**：追蹤 `ClientInstance`、限制單一連線最多 `MAX_LOCAL_PLAYERS_PER_CLIENT`（預設 6）位本地玩家、管理單獨 BLE `DeviceState`、管理 30 秒斷線保留計時器。
-3. **RoomManager**：管理房間開關、滿員轉 `SPECTATOR`、房主移轉，以及 `FINISHED -> WAITING` 續玩重置（可切換遊戲模式）。
-4. **MatchManager & Tick Loop**：控制 `CREATED → COUNTDOWN → PLAYING → FINISHED`，以 Server 時間驅動 100ms Tick 與開賽/結束排程。
-5. **GameModeRegistry & Server Rule Modules**：實作統一生命週期介面並支援第三方 Metadata 欄位（`developerId`、`protocolVersion`、`allowedOrigins`、`clientEntryUrl`）。
-6. **GameEventManager**：執行 8 步驟驗證管線（Auth → 歸屬權 → 比賽進行中 → 非觀賽者 → `eventId` 去重 → `(matchId, playerId)` 序號遞增 → Mode Zod Schema → 離線補送政策）；`critical` 事件排入 500ms 批次寫入佇列。
-7. **GameStateManager & ScoreManager**：熱狀態存於記憶體，依模式頻率（如 4Hz）廣播 `score:broadcast`；每 5 秒與賽後寫入 `game_states` 快照。
-8. **TeamManager & MatchHistoryManager**：支援個人與動態隊伍計分，賽後寫入 `matches` 與 `match_participants`。
+1. **Auth & Session Service**（`auth/jwt.ts`、`http/routes.ts`、`socket/gateway.ts`）：核發與驗證含 `clientInstanceId`、`allowedModeIds`、`origin` 之短效 JWT，並保護 Socket.IO 連線。
+2. **PlayerManager & Device Registry**（`managers/PlayerManager.ts`）：追蹤 `ClientInstance`、限制單一連線最多 `MAX_LOCAL_PLAYERS_PER_CLIENT`（預設 6）位本地玩家、管理單獨 BLE `DeviceState`、管理 30 秒斷線保留計時器。
+3. **RoomManager**（`managers/RoomManager.ts`）：管理房間開關、滿員轉 `SPECTATOR`、房主移轉、無人自動關閉清理，以及 `FINISHED -> WAITING` 續玩重置（可切換遊戲模式）。
+4. **MatchManager & Tick Loop**（`managers/MatchManager.ts`）：控制 `CREATED → COUNTDOWN → PLAYING → FINISHED`（對應房間狀態 `STARTING → PLAYING → FINISHED`），以 Server 時間驅動 100ms Tick（含防重入保護）、4Hz（250ms）`score:broadcast` 節流廣播、每 5 秒與賽後寫入 `game_states` 快照，以及賽後結果記憶體快取（上限 200 筆）與持久化。
+5. **GameModeRegistry & Server Rule Modules**（`modes/registry.ts`、`modes/multiplayerMode.ts`、`modes/bombPassMode.ts`）：實作統一生命週期介面並支援第三方 Metadata 欄位（`developerId`、`protocolVersion`、`allowedOrigins`、`clientEntryUrl`）。
+6. **GameEventManager**（`managers/GameEventManager.ts`）：執行 8 步驟驗證管線（Schema → 連線身分 → 玩家歸屬權 → 比賽進行中 → 非觀賽者 → `eventId` 去重 → `(matchId, playerId)` 序號遞增 → 離線補送政策與 Mode 規則驗證）；`critical` 事件排入 `PersistenceService` 500ms 批次寫入佇列。
+7. **TeamManager & PersistenceService**（`managers/TeamManager.ts`、`db/persistence.ts`）：支援個人與動態隊伍計分彙整，並負責將房間、賽局、參賽者成績（`matches`、`match_participants`）、關鍵事件（`game_events`）與狀態快照（`game_states`）寫入 PostgreSQL。
 
 #### B. 首波實作的兩個 Game Mode Modules
 

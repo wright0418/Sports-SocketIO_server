@@ -37,7 +37,7 @@
 3. **消除重複邏輯與減少不必要輪詢**（[app.js](file:///mnt/Project/GameServre-socketIO/packages/test-client/app.js)）
    - 抽出共用函式 `getReadyButtonState()`，統一單一玩家「準備」按鈕與「全部本地玩家準備」按鈕的狀態與文案計算。
    - 抽出共用函式 `joinRoomByCode()`，統一房間列表「加入」按鈕與手動輸入房號「加入房間」的流程。
-   - 房間處於 `COUNTDOWN` 或 `PLAYING` 狀態時暫停 `/api/rooms` 3 秒輪詢，減少賽局進行中的無效 HTTP 請求。
+   - 房間處於 `STARTING`（或 `COUNTDOWN`）與 `PLAYING` 狀態時暫停 `/api/rooms` 3 秒輪詢，減少賽局進行中的無效 HTTP 請求。
 
 ---
 

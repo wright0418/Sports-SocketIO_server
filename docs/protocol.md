@@ -26,10 +26,11 @@
   ```json
   {
     "clientInstanceId": "client-xxxx",
-    "modeId": "multiplayer"
+    "modeId": "multiplayer",
+    "allowedModeIds": ["multiplayer", "bomb-pass"]
   }
   ```
-  （兩欄位皆選填；未傳入 `clientInstanceId` 時由 Server 自動產生）
+  （所有欄位皆選填；未傳入 `clientInstanceId` 時由 Server 自動產生；未傳入 `allowedModeIds` 時若指定 `modeId` 則為 `[modeId]`，否則為 `["*"]`）
 - **Response (`200 OK`)**:
   ```json
   {
@@ -49,16 +50,21 @@
 查詢目前未關閉的房間列表，或依 `roomId` / 6 碼 `roomCode` 取得單一房間快照。
 
 ### 1.5 `GET /api/matches/:matchId`
-查詢已結束比賽之結果與參與者紀錄（優先讀取記憶體快取，否則查詢 PostgreSQL `matches`、`match_participants` 與最新 `game_states`）。
+查詢已結束比賽之結果與參與者紀錄：
+- 若命中記憶體快取（`MatchManager.finishedResults`，最多保留最近 200 場），回傳 `{ "ok": true, "result": MatchResult }`。
+- 若未命中快取則查詢 PostgreSQL（`matches`、`match_participants` 與最新一筆 `game_states`），回傳 `{ "ok": true, "record": { "match": ..., "participants": [...], "latestState": ... } }`。
 
 ---
 
 ## 2. Socket.IO 連線與標準 Ack 回應規範
 
 ### 2.1 連線驗證
-建立 Socket.IO 連線時，須於 `handshake.auth.token` 傳入 `POST /api/auth/session` 取得之 JWT：
+建立 Socket.IO 連線時，須於 `handshake.auth.token` 傳入 `POST /api/auth/session` 取得之 JWT（若伺服器部署於子路徑如 `/games-server` 或 `/sports-server`，SDK 會自動拆解 `serverOrigin` 並設定 `path: "${basePath}/socket.io"`）：
 ```javascript
-const socket = io(serverUrl, { auth: { token } });
+const socket = io(serverOrigin, {
+  path: `${basePath}/socket.io`,
+  auth: { token },
+});
 ```
 驗證失敗會拒絕握手並回傳 `<ErrorCode>: <message>`（例如 `TOKEN_EXPIRED`、`UNAUTHORIZED`）。
 

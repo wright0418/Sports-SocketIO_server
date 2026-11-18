@@ -277,7 +277,7 @@
       const statusText =
         roomStatus === 'PLAYING'
           ? '比賽中'
-          : roomStatus === 'COUNTDOWN'
+          : roomStatus === 'STARTING' || roomStatus === 'COUNTDOWN'
             ? '倒數中'
             : '已結束';
       return {
@@ -408,7 +408,12 @@
     void refreshAvailableRooms();
     roomListTimer = setInterval(() => {
       const status = sdk?.getCurrentRoom()?.status;
-      if (sdk?.isConnected() && status !== 'PLAYING' && status !== 'COUNTDOWN') {
+      if (
+        sdk?.isConnected() &&
+        status !== 'PLAYING' &&
+        status !== 'STARTING' &&
+        status !== 'COUNTDOWN'
+      ) {
         void refreshAvailableRooms();
       }
     }, 3000);

@@ -1,83 +1,65 @@
-# EduSports V2.0 — 個人網頁子路徑部署計畫 (`/sports-server`)
+# EduSports V2.0 — 個人網頁子路徑部署架構與設定 (`/games-server` & `/sports-server`)
 
-**目標網址：** `https://ridgerealm.com/sports-server/`  
-**架構方案：** Docker Compose（PostgreSQL 16 + Node.js Competition Server）+ Caddy 反向代理（`handle_path /sports-server*`）
-
----
-
-## 1. 為什麼需要調整才能掛在 `/sports-server`？
-
-目前程式預設部署在根路徑 `/`（例如 `http://localhost:3100/test-client/`），若直接掛在個人網頁的子路徑 `/sports-server/` 下，會遇到三個技術問題：
-
-1. **Socket.IO Namespace 與 Path 衝突**：
-   `io("https://example.com/sports-server")` 會被 `socket.io-client` 解讀為連線到 `/sports-server` **Namespace**，實際封包仍會打向根路徑 `/socket.io/` 而與主站衝突；必須改為 `io(origin, { path: "/sports-server/socket.io" })`。
-2. **HTML 相對路徑問題**：
-   [index.html](file:///mnt/Project/GameServre-socketIO/packages/test-client/index.html) 目前使用 `/sdk/edusports-sdk.global.js` 絕對路徑，在子路徑下會請求主站的 `/sdk/...` 而 404。
-3. **Express 根路徑重導向**：
-   [routes.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/http/routes.ts) 目前 `GET /` 會重導向至 `/test-client/`，若經由 Caddy `handle_path` 剝除前綴後，瀏覽器會被導向主站的 `/test-client/`。
+**目標網址：** `https://ridgerealm.com/games-server/` 或 `https://ridgerealm.com/sports-server/`  
+**實際架構：** Docker Compose（`edusports-postgres` + `edusports-server`）+ 外部 Docker 網路 `focker_net` + Caddy 反向代理
 
 ---
 
-## 2. 程式碼修改計畫（共 4 處微調，完全相容本機與測試）
+## 1. 子路徑相容架構設計（已實作於程式碼）
 
-### 2.1 `@edusports/sdk`（自動解析 `serverUrl` 的 `basePath`）
-修改 [EduSportsMultiplayer.ts](file:///mnt/Project/GameServre-socketIO/packages/sdk/src/EduSportsMultiplayer.ts)：
-- 解析 `new URL(options.serverUrl)` 拆出 `serverOrigin` 與 `basePath`（例如 `/sports-server`，若為根路徑則為 `""`）。
-- `fetchSessionToken()` 改為呼叫 `${serverOrigin}${basePath}/api/auth/session`。
-- `io(serverOrigin, { path: `${basePath}/socket.io`, ... })`：確保 WebSocket / Polling 握手正確走 `/sports-server/socket.io`。
-- **向下相容性**：本機測試傳入 `http://127.0.0.1:3100` 時，`basePath` 為 `""`，行為與現有 6 項 Vitest 測試完全一致。
+為同時相容本機根路徑（`http://127.0.0.1:3100/`）與個人網站子路徑（`/games-server/`、`/sports-server/`），以及相容 Caddy 使用 `handle_path`（剝除前綴）或 `handle`（保留前綴）兩種反向代理模式，專案已實作以下機制：
 
-### 2.2 `packages/server`（Express 靜態與根路徑）
-修改 [routes.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/http/routes.ts)：
-- `GET /` 直接提供 `packages/test-client` 靜態首頁（保留 `/test-client` 別名相容原本習慣），不再發送根路徑 Redirect。
-- 同時於 `/sdk` 提供 `packages/sdk/dist` 靜態檔案。
+### 1.1 `@edusports/sdk`（自動拆解 `serverUrl` 的 `serverOrigin` 與 `basePath`）
+於 [EduSportsMultiplayer.ts](file:///mnt/Project/GameServre-socketIO/packages/sdk/src/EduSportsMultiplayer.ts#L163-L171)：
+- 解析 `new URL(options.serverUrl)` 拆出 `serverOrigin` 與 `basePath`（例如 `/games-server` 或 `/sports-server`；若為根路徑則為 `""`）。
+- `fetchSessionToken()` 自動呼叫 `${serverOrigin}${basePath}/api/auth/session`。
+- Socket.IO 連線使用 `io(serverOrigin, { path: `${basePath}/socket.io`, ... })`，避免子路徑被誤判為 Socket.IO Namespace。
 
-### 2.3 `packages/test-client`（改用相對路徑與動態 `serverUrl`）
-修改 [index.html](file:///mnt/Project/GameServre-socketIO/packages/test-client/index.html) 與 [app.js](file:///mnt/Project/GameServre-socketIO/packages/test-client/app.js)：
-- `index.html` 改為 `<script src="./sdk/edusports-sdk.global.js"></script>`（相對路徑）。
-- `app.js` 計算 `baseUrl`（例如去掉結尾 `/test-client/...` 後的基礎 URL），使 `serverUrl` 自動帶入 `https://<網域>/sports-server` 或 `http://localhost:3100`。
+### 1.2 `@edusports/server`（多重掛載與靜態資源路由）
+於 [routes.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/http/routes.ts#L156-L182)：
+- 靜態路由同時掛載 `/sdk`、`/test-client/sdk`、`/test-client` 與 `/`，直接提供 `packages/test-client` 與 `packages/sdk/dist` 靜態檔案。
+- Express App 將同一個 `router` 同時掛載於：
+  - `/games-server`（無尾斜線 `/games-server` 自動 `301` 導向 `/games-server/`）
+  - `/sports-server`（無尾斜線 `/sports-server` 自動 `301` 導向 `/sports-server/`）
+  - `/`（根路徑）
+- 因此無論反向代理是否剝除子路徑前綴，REST API（`/health`、`/api/*`）與靜態資源皆可正確命中。
 
-### 2.4 Docker Compose 納入 Competition Server
-1. 新增 `Dockerfile`（Node.js 22 Alpine 多階段建置 `@edusports/shared`、`@edusports/sdk`、`@edusports/server`）。
-2. 更新 [docker-compose.yml](file:///mnt/Project/GameServre-socketIO/docker-compose.yml) 加入 `server` 服務：
-   - 與 `edusports-postgres` 共用內部 Docker Network（`DATABASE_URL` 連線主機名為 `postgres:5432`）。
-   - 對本機僅綁定 `127.0.0.1:3100:3100`（不直接對外暴露 3100，統一由 Caddy 提供 HTTPS/WSS）。
-   - 設定 `CORS_ORIGIN` 允許你的個人網域。
+### 1.3 `packages/test-client`（相對路徑與動態 `resolveServerUrl()`）
+於 [index.html](file:///mnt/Project/GameServre-socketIO/packages/test-client/index.html#L119-L120) 與 [app.js](file:///mnt/Project/GameServre-socketIO/packages/test-client/app.js#L98-L104)：
+- `index.html` 使用相對路徑 `<script src="./sdk/edusports-sdk.global.js"></script>` 與 `<script src="./app.js"></script>`。
+- `app.js` 透過 `resolveServerUrl()` 由 `window.location.href` 自動推算當前伺服器基底網址（移除尾端 `/test-client`），供 SDK 連線與 `GET /api/rooms` 房間列表查詢共用。
+
+### 1.4 Docker Compose 與 `focker_net` 外部網路
+於 [Dockerfile](file:///mnt/Project/GameServre-socketIO/Dockerfile) 與 [docker-compose.yml](file:///mnt/Project/GameServre-socketIO/docker-compose.yml)：
+- `Dockerfile` 採用 `node:22-alpine` 多階段建置（Builder 編譯 `shared` → `sdk` → `server`，Runner 僅保留 production 相依套件與編譯產物）。
+- `docker-compose.yml` 中的 `server`（容器名稱 `edusports-server`）：
+  - 對本機綁定 `127.0.0.1:3100:3100`。
+  - 同時加入 `default`（連接 `edusports-postgres`）與外部網路 `focker_net`（供 Caddy 容器直接以 `edusports-server:3100` 反向代理）。
 
 ---
 
-## 3. Caddy 反向代理設定（`ridgerealm.com`）
+## 2. Caddy 反向代理設定（`ridgerealm.com`）
 
-在您的 `ridgerealm.com` Caddyfile 網域區塊中，加入以下規則：
+於 `ridgerealm.com` 的 Caddyfile 中可使用 `/games-server` 或 `/sports-server`：
 
 ```caddyfile
 ridgerealm.com {
-    # ... 您原有的 ridgerealm.com 主站設定 ...
-
     # 確保無尾斜線時補上 /，讓 ./sdk/ 等相對路徑正確解析
-    redir /sports-server /sports-server/ permanent
+    redir /games-server /games-server/ permanent
 
-    # 剝除 /sports-server 前綴並轉發至 EduSports Server (支援 HTTP 與 WebSocket/WSS)
-    handle_path /sports-server* {
-        # 若 Caddy 與本機共用 host 網路（或直接裝在主機上），使用：
-        reverse_proxy 127.0.0.1:3100
-
-        # 若 Caddy 跑在獨立 Docker 容器（bridge 模式），請改為連接同一 Docker network 的容器名稱：
-        # reverse_proxy edusports-server:3100
+    # 剝除前綴並轉發至同在 focker_net 的 edusports-server 容器
+    handle_path /games-server* {
+        reverse_proxy edusports-server:3100
     }
 }
 ```
 
-> [!TIP]
-> 由於本機上的 Caddy 是以 Docker 容器執行，若 Caddy 非 `network_mode: host`，容器內的 `127.0.0.1` 會指向 Caddy 自己。建議將 `edusports-server` 加入 Caddy 所在的 Docker 外部網路後使用 `reverse_proxy edusports-server:3100`（或使用 `host.docker.internal:3100`）。
-
-### 個人網頁分頁連結方式
-- **分頁導覽列連結**：`<a href="/sports-server/">跳繩多人競賽</a>`
-- **或嵌入個人網頁分頁（注意 Web Bluetooth 權限）**：
-  若要直接嵌在 `ridgerealm.com` 分頁內的 `<iframe>`，需加上 `allow="bluetooth"`：
+### 個人網頁嵌入或連結方式
+- **直接連結**：`<a href="/games-server/">跳繩多人競賽</a>`
+- **`<iframe>` 嵌入（須開啟 Web Bluetooth 權限）**：
   ```html
   <iframe
-    src="/sports-server/"
+    src="/games-server/"
     allow="bluetooth"
     style="width: 100%; height: 90vh; border: none;"
   ></iframe>
@@ -85,12 +67,14 @@ ridgerealm.com {
 
 ---
 
-## 4. 部署後驗證清單
+## 3. 更新與部署指令
 
-1. `npm run build && npm test`：確認 SDK 修改後所有 6 項整合與安全測試依然全數通過。
-2. `docker compose up -d --build`：確認 `edusports-postgres` 與 `edusports-server` 皆為 `Up (healthy)`。
-3. 透過 `https://ridgerealm.com/sports-server/health` 確認回傳 `{"ok":true,"status":"healthy",...}`。
-4. 瀏覽器開啟 `https://ridgerealm.com/sports-server/`：
-   - 確認 Console 無 404 與 CORS 錯誤。
-   - 確認按下「連線」後 Socket.IO 成功透過 `wss://ridgerealm.com/sports-server/socket.io/` 建立連線。
-   - 確認可正常建立房間並進行 `multiplayer` / `bomb-pass` 測試。
+每次修改 `packages/` 程式碼後，執行以下指令即可完成測試、重建容器與健康檢查：
+
+```bash
+node --check packages/test-client/app.js
+npm test
+docker compose up -d --build server
+docker compose ps
+curl -fsS http://127.0.0.1:3100/health
+```
