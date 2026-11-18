@@ -1,6 +1,6 @@
 # EduSports V2.0 — 個人網頁子路徑部署計畫 (`/sports-server`)
 
-**目標網址形式：** `https://<你的個人網域>/sports-server/`  
+**目標網址：** `https://ridgerealm.com/sports-server/`  
 **架構方案：** Docker Compose（PostgreSQL 16 + Node.js Competition Server）+ Caddy 反向代理（`handle_path /sports-server*`）
 
 ---
@@ -46,28 +46,35 @@
 
 ---
 
-## 3. Caddy 反向代理設定範例（加到現有 Caddyfile 主站區塊內）
+## 3. Caddy 反向代理設定（`ridgerealm.com`）
 
-在你的個人網站 Caddyfile 網域區塊中，加入以下規則：
+在您的 `ridgerealm.com` Caddyfile 網域區塊中，加入以下規則：
 
 ```caddyfile
-your-domain.com {
-    # ... 你原有的個人網站設定 ...
+ridgerealm.com {
+    # ... 您原有的 ridgerealm.com 主站設定 ...
 
     # 確保無尾斜線時補上 /，讓 ./sdk/ 等相對路徑正確解析
     redir /sports-server /sports-server/ permanent
 
-    # 剝除 /sports-server 前綴並轉發至本機 3100 (支援 HTTP 與 WebSocket/WSS)
+    # 剝除 /sports-server 前綴並轉發至 EduSports Server (支援 HTTP 與 WebSocket/WSS)
     handle_path /sports-server* {
+        # 若 Caddy 與本機共用 host 網路（或直接裝在主機上），使用：
         reverse_proxy 127.0.0.1:3100
+
+        # 若 Caddy 跑在獨立 Docker 容器（bridge 模式），請改為連接同一 Docker network 的容器名稱：
+        # reverse_proxy edusports-server:3100
     }
 }
 ```
 
+> [!TIP]
+> 由於本機上的 Caddy 是以 Docker 容器執行，若 Caddy 非 `network_mode: host`，容器內的 `127.0.0.1` 會指向 Caddy 自己。建議將 `edusports-server` 加入 Caddy 所在的 Docker 外部網路後使用 `reverse_proxy edusports-server:3100`（或使用 `host.docker.internal:3100`）。
+
 ### 個人網頁分頁連結方式
 - **分頁導覽列連結**：`<a href="/sports-server/">跳繩多人競賽</a>`
 - **或嵌入個人網頁分頁（注意 Web Bluetooth 權限）**：
-  若要直接嵌在主站分頁內的 `<iframe>`，需加上 `allow="bluetooth"`：
+  若要直接嵌在 `ridgerealm.com` 分頁內的 `<iframe>`，需加上 `allow="bluetooth"`：
   ```html
   <iframe
     src="/sports-server/"
@@ -82,8 +89,8 @@ your-domain.com {
 
 1. `npm run build && npm test`：確認 SDK 修改後所有 6 項整合與安全測試依然全數通過。
 2. `docker compose up -d --build`：確認 `edusports-postgres` 與 `edusports-server` 皆為 `Up (healthy)`。
-3. 透過 `https://<你的網域>/sports-server/health` 確認回傳 `{"ok":true,"status":"healthy",...}`。
-4. 瀏覽器開啟 `https://<你的網域>/sports-server/`：
+3. 透過 `https://ridgerealm.com/sports-server/health` 確認回傳 `{"ok":true,"status":"healthy",...}`。
+4. 瀏覽器開啟 `https://ridgerealm.com/sports-server/`：
    - 確認 Console 無 404 與 CORS 錯誤。
-   - 確認按下「連線」後 Socket.IO 成功透過 `wss://<你的網域>/sports-server/socket.io/` 建立連線。
+   - 確認按下「連線」後 Socket.IO 成功透過 `wss://ridgerealm.com/sports-server/socket.io/` 建立連線。
    - 確認可正常建立房間並進行 `multiplayer` / `bomb-pass` 測試。
