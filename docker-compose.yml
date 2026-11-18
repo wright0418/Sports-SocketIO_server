@@ -31,6 +31,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-edusports}:${POSTGRES_PASSWORD:-edusports_pass}@postgres:5432/${POSTGRES_DB:-edusports}
     ports:
       - "127.0.0.1:3100:3100"
+    networks:
+      - default
+      - focker_net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/health >/dev/null || exit 1"]
       interval: 10s
@@ -39,3 +42,7 @@ services:
 
 volumes:
   edusports_pgdata:
+
+networks:
+  focker_net:
+    external: true
