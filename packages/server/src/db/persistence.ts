@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import type {
   DeviceState,
   GameModeMetadata,
@@ -252,22 +252,24 @@ export class PersistenceService {
       })
       .where(eq(matches.id, result.matchId));
 
-    for (const p of result.participants) {
+    if (result.participants.length > 0) {
       await this.db
         .insert(matchParticipants)
-        .values({
-          matchId: result.matchId,
-          playerId: p.playerId,
-          teamId: p.teamId,
-          finalScore: p.finalScore,
-          result: p as unknown as Record<string, unknown>,
-        })
-        .onConflictDoUpdate({
-          target: [matchParticipants.matchId, matchParticipants.playerId],
-          set: {
+        .values(
+          result.participants.map((p) => ({
+            matchId: result.matchId,
+            playerId: p.playerId,
             teamId: p.teamId,
             finalScore: p.finalScore,
             result: p as unknown as Record<string, unknown>,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [matchParticipants.matchId, matchParticipants.playerId],
+          set: {
+            teamId: sql`excluded.team_id`,
+            finalScore: sql`excluded.final_score`,
+            result: sql`excluded.result`,
           },
         });
     }

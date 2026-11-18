@@ -73,8 +73,8 @@ const player = await sdk.registerLocalPlayer({
 
 ## 3. 看見房間、建立房間與加入房間
 
-### 3.1 看見目前已建立的房間（REST API）
-SDK 目前未封裝清單方法，請直接以 `fetch` 呼叫 `GET ${serverUrl}/api/rooms` 取得所有未關閉房間（`RoomSnapshot[]`）：
+### 3.1 看見目前已建立的房間（REST 初始載入 + `rooms:updated` 即時推播）
+1. 連線後先以 `fetch` 呼叫 `GET ${serverUrl}/api/rooms` 取得目前所有未關閉房間（`PublicRoomSummary[]`）：
 ```js
 async function fetchOpenRooms(serverUrl) {
   const res = await fetch(`${serverUrl}/api/rooms`);
@@ -82,14 +82,14 @@ async function fetchOpenRooms(serverUrl) {
   if (!res.ok || !data.ok) {
     throw new Error(data?.error?.message || `HTTP ${res.status}`);
   }
-  return data.rooms; // RoomSnapshot[]
+  return data.rooms; // PublicRoomSummary[]
 }
 ```
-每筆 `RoomSnapshot` 結構包含：
-- `roomId`、`roomCode`（6 碼大寫房號）、`gameModeId`、`status`（`WAITING | READY | STARTING | PLAYING | FINISHED | CLOSED`）
-- `maxPlayers`、`players`（`PlayerState[]`）、`teams`、`activeMatchId`、`config`、`ownerClientInstanceId`
+2. 訂閱 `sdk.on('rooms:updated', ({ rooms }) => ...)`，當任何玩家建立、加入、離開、準備、重置房間或開賽／完賽時，Server 會即時主動推播最新房間列表，不需再定時輪詢。
 
-> 建議只在「尚未進入倒數／開賽（`status !== 'STARTING' && status !== 'PLAYING'`）」時每 3 秒輪詢一次，或搭配手動重新整理按鈕與 `sdk.on('room:updated', ...)` 更新畫面。
+每筆 `PublicRoomSummary` 結構包含：
+- `roomId`、`roomCode`（6 碼大寫房號）、`gameModeId`、`status`（`WAITING | READY | STARTING | PLAYING | FINISHED | CLOSED`）
+- `maxPlayers`、`players`、`teams`、`activeMatchId`、`config`、`ownerPlayerId`
 
 ### 3.2 建立房間與加入房間
 - **建立房間**（會自動將已註冊的本地玩家加入該房，若未傳 `playerIds` 則帶入全部本地玩家）：
@@ -147,6 +147,7 @@ await sdk.resetRoom({
 | `disconnected` | `{ reason }` | Socket 斷線通知 |
 | `reconnected` | `{ reg, restoredSnapshot, replayResults }` | 斷線重連並恢復快照後 |
 | `clock:synced` | `{ offsetMs, rttMs }` | 每次心跳對時完成 |
+| `rooms:updated` | `{ rooms: PublicRoomSummary[] }` | Lobby 開放房間列表即時變更 |
 | `room:updated` | `RoomSnapshot` | 房間成員、準備狀態或房間狀態變更 |
 | `player:joined` | `{ roomId, players }` | 有玩家加入房間 |
 | `player:left` | `{ roomId, playerIds }` | 有玩家離開或逾時移除 |

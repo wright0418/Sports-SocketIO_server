@@ -667,6 +667,7 @@ export class EduSportsMultiplayer {
 
     const passthroughEvents = [
       ServerEvents.CLIENT_REGISTERED,
+      ServerEvents.ROOMS_UPDATED,
       ServerEvents.PLAYER_JOINED,
       ServerEvents.PLAYER_LEFT,
       ServerEvents.PLAYER_DISCONNECTED,

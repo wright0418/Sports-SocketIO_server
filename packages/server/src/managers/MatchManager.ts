@@ -140,6 +140,9 @@ export class MatchManager {
     );
 
     this.io.to(room.roomId).emit(ServerEvents.ROOM_UPDATED, roomSnapshot);
+    this.io.to('lobby').emit(ServerEvents.ROOMS_UPDATED, {
+      rooms: this.roomManager.listPublicRooms(),
+    });
 
     if (countdownMs > 0) {
       this.io.to(room.roomId).emit(ServerEvents.MATCH_COUNTDOWN, {
@@ -348,6 +351,9 @@ export class MatchManager {
     });
     this.io.to(match.room.roomId).emit(ServerEvents.MATCH_RESULT, result);
     this.io.to(match.room.roomId).emit(ServerEvents.ROOM_UPDATED, roomSnapshot);
+    this.io.to('lobby').emit(ServerEvents.ROOMS_UPDATED, {
+      rooms: this.roomManager.listPublicRooms(),
+    });
 
     return result;
   }
@@ -379,6 +385,9 @@ export class MatchManager {
 
     const snapshot = this.buildSnapshot(match, now);
     this.io.to(match.room.roomId).emit(ServerEvents.ROOM_UPDATED, roomSnapshot);
+    this.io.to('lobby').emit(ServerEvents.ROOMS_UPDATED, {
+      rooms: this.roomManager.listPublicRooms(),
+    });
     this.io.to(match.room.roomId).emit(ServerEvents.MATCH_START, snapshot);
   }
 

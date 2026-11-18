@@ -20,12 +20,27 @@ export interface ServerConfig {
 }
 
 export function loadConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
+  const devFallbackSecret = 'edusports-phase1-dev-secret-key-2026';
+  const envJwtSecret = process.env.JWT_SECRET?.trim();
+  const jwtSecret = overrides.jwtSecret ?? envJwtSecret ?? devFallbackSecret;
+
+  if (process.env.NODE_ENV === 'production') {
+    if (!overrides.jwtSecret && !envJwtSecret) {
+      throw new Error('JWT_SECRET must be set when NODE_ENV=production');
+    }
+    if (jwtSecret === devFallbackSecret) {
+      console.warn(
+        '[Config] Warning: JWT_SECRET is using the default development secret in production. Please rotate it in .env.',
+      );
+    }
+  }
+
   return {
     port: Number(process.env.PORT ?? 3100),
     databaseUrl:
       process.env.DATABASE_URL ??
       'postgresql://edusports:edusports_pass@127.0.0.1:5432/edusports',
-    jwtSecret: process.env.JWT_SECRET ?? 'edusports-phase1-dev-secret-key-2026',
+    jwtSecret,
     jwtExpiresInSeconds: Number(process.env.JWT_EXPIRES_IN_SECONDS ?? 7200),
     maxLocalPlayersPerClient: Number(
       process.env.MAX_LOCAL_PLAYERS_PER_CLIENT ?? 6,

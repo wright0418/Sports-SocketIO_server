@@ -36,6 +36,7 @@ export class PlayerManager {
     socketId: string,
   ): {
     session: ClientInstanceSession;
+    previousSocketId: string | null;
     reconnectedPlayers: Array<{
       playerId: string;
       roomId: string | null;
@@ -55,6 +56,8 @@ export class PlayerManager {
         clearTimeout(existing.disconnectTimer);
         existing.disconnectTimer = null;
       }
+      const previousSocketId =
+        existing.socketId && existing.socketId !== socketId ? existing.socketId : null;
       const wasDisconnected = existing.status === 'DISCONNECTED';
       existing.socketId = socketId;
       existing.status = 'CONNECTED';
@@ -79,8 +82,10 @@ export class PlayerManager {
         }
       }
 
-      void this.persistence.upsertClientInstance(clientInstanceId, 'CONNECTED').catch(() => {});
-      return { session: existing, reconnectedPlayers };
+      void this.persistence
+        .upsertClientInstance(clientInstanceId, 'CONNECTED')
+        .catch((err) => console.error('[PlayerManager] upsertClientInstance error:', err));
+      return { session: existing, previousSocketId, reconnectedPlayers };
     }
 
     const session: ClientInstanceSession = {
@@ -92,8 +97,10 @@ export class PlayerManager {
       disconnectTimer: null,
     };
     this.clients.set(clientInstanceId, session);
-    void this.persistence.upsertClientInstance(clientInstanceId, 'CONNECTED').catch(() => {});
-    return { session, reconnectedPlayers };
+    void this.persistence
+      .upsertClientInstance(clientInstanceId, 'CONNECTED')
+      .catch((err) => console.error('[PlayerManager] upsertClientInstance error:', err));
+    return { session, previousSocketId: null, reconnectedPlayers };
   }
 
   touchHeartbeat(clientInstanceId: string): void {
@@ -248,6 +255,12 @@ export class PlayerManager {
     if (input.assignedPlayerId) {
       const player = this.assertPlayerOwned(clientInstanceId, input.assignedPlayerId);
       player.deviceId = input.deviceId;
+    } else if (input.assignedPlayerId === null) {
+      for (const p of this.getClientPlayers(clientInstanceId)) {
+        if (p.deviceId === input.deviceId) {
+          p.deviceId = null;
+        }
+      }
     }
 
     const device: DeviceState = {
@@ -260,7 +273,9 @@ export class PlayerManager {
     };
 
     this.devices.set(device.deviceId, device);
-    void this.persistence.upsertDevice(device).catch(() => {});
+    void this.persistence
+      .upsertDevice(device)
+      .catch((err) => console.error('[PlayerManager] upsertDevice error:', err));
     return device;
   }
 
@@ -292,7 +307,9 @@ export class PlayerManager {
       }
     }
 
-    void this.persistence.upsertClientInstance(clientInstanceId, 'DISCONNECTED').catch(() => {});
+    void this.persistence
+      .upsertClientInstance(clientInstanceId, 'DISCONNECTED')
+      .catch((err) => console.error('[PlayerManager] upsertClientInstance error:', err));
 
     if (client.disconnectTimer) {
       clearTimeout(client.disconnectTimer);
@@ -302,7 +319,11 @@ export class PlayerManager {
       const current = this.clients.get(clientInstanceId);
       if (!current || current.status === 'CONNECTED') return;
       const expiredPlayerIds = Array.from(current.playerIds);
-      onGraceExpired(clientInstanceId, expiredPlayerIds);
+      try {
+        onGraceExpired(clientInstanceId, expiredPlayerIds);
+      } finally {
+        this.purgeDisconnectedClient(clientInstanceId);
+      }
     }, this.disconnectGracePeriodMs);
     client.disconnectTimer.unref();
 
@@ -310,6 +331,22 @@ export class PlayerManager {
       affectedPlayers,
       affectedRoomIds: Array.from(affectedRoomIds),
     };
+  }
+
+  private purgeDisconnectedClient(clientInstanceId: string): void {
+    const client = this.clients.get(clientInstanceId);
+    if (!client || client.status === 'CONNECTED') return;
+
+    for (const pid of client.playerIds) {
+      this.players.delete(pid);
+      this.playerRoomMap.delete(pid);
+    }
+    for (const [deviceId, device] of this.devices.entries()) {
+      if (device.localClientId === clientInstanceId) {
+        this.devices.delete(deviceId);
+      }
+    }
+    this.clients.delete(clientInstanceId);
   }
 
   clearAllTimers(): void {

@@ -47,7 +47,8 @@
 取得已註冊之遊戲模式 Metadata 列表（含版本、人數上下限、離線補送政策與第三方擴充欄位）。
 
 ### 1.4 `GET /api/rooms` 與 `GET /api/rooms/:codeOrId`
-查詢目前未關閉的房間列表，或依 `roomId` / 6 碼 `roomCode` 取得單一房間快照。
+- `GET /api/rooms`：查詢目前未關閉的公開房間列表（`PublicRoomSummary[]`，已移除 `ownerClientInstanceId` 與玩家 `clientInstanceId` 以防止冒名）。
+- `GET /api/rooms/:codeOrId`：依 `roomId` 或 6 碼 `roomCode` 取得單一房間快照。
 
 ### 1.5 `GET /api/matches/:matchId`
 查詢已結束比賽之結果與參與者紀錄：
@@ -101,6 +102,7 @@ const socket = io(serverOrigin, {
 |---|---|
 | `client:registered` | Client 註冊成功，包含 `maxLocalPlayers`、目前本地玩家與重連房間清單 |
 | `room:updated` | 房間快照更新（`RoomSnapshot`） |
+| `rooms:updated` | Lobby 開放房間列表即時推播（`{ rooms: PublicRoomSummary[] }`） |
 | `player:joined` | 玩家加入房間通知 |
 | `player:left` | 玩家永久離開或超過 30 秒斷線保留期被移除通知 |
 | `player:disconnected` | 玩家網路斷線通知（進入保留期） |

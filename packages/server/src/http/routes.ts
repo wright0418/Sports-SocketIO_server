@@ -100,7 +100,7 @@ export function createHttpApp(deps: {
   router.get('/api/rooms', (_req, res) => {
     res.json({
       ok: true,
-      rooms: deps.roomManager.listRooms(),
+      rooms: deps.roomManager.listPublicRooms(),
     });
   });
 

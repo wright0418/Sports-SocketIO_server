@@ -78,6 +78,12 @@ export function attachSocketGateway(deps: {
 }): void {
   const { io, config, playerManager, roomManager, matchManager } = deps;
 
+  const broadcastLobbyRooms = () => {
+    io.to('lobby').emit(ServerEvents.ROOMS_UPDATED, {
+      rooms: roomManager.listPublicRooms(),
+    });
+  };
+
   // JWT Authentication Middleware on Socket.IO handshake
   io.use((socket, next) => {
     try {
@@ -131,10 +137,17 @@ export function attachSocketGateway(deps: {
           );
         }
 
-        const { session, reconnectedPlayers } = playerManager.registerClient(
-          clientInstanceId,
-          socket.id,
-        );
+        const { session, previousSocketId, reconnectedPlayers } =
+          playerManager.registerClient(clientInstanceId, socket.id);
+
+        if (previousSocketId) {
+          const oldSocket = io.sockets.sockets.get(previousSocketId);
+          if (oldSocket && oldSocket.id !== socket.id) {
+            oldSocket.disconnect(true);
+          }
+        }
+
+        await socket.join('lobby');
 
         const rejoinedRooms = new Set<string>();
         for (const info of reconnectedPlayers) {
@@ -213,6 +226,7 @@ export function attachSocketGateway(deps: {
               playerIds: left.removedPlayerIds,
             });
             io.to(roomId).emit(ServerEvents.ROOM_UPDATED, left.room);
+            broadcastLobbyRooms();
           }
         }
         const player = playerManager.removeLocalPlayer(
@@ -255,6 +269,7 @@ export function attachSocketGateway(deps: {
         const room = roomManager.createRoom(clientInstanceId, input);
         await socket.join(room.roomId);
         io.to(room.roomId).emit(ServerEvents.ROOM_UPDATED, room);
+        broadcastLobbyRooms();
         return { room };
       });
     });
@@ -272,6 +287,7 @@ export function attachSocketGateway(deps: {
           players: joinedPlayers,
         });
         io.to(room.roomId).emit(ServerEvents.ROOM_UPDATED, room);
+        broadcastLobbyRooms();
         return { room, joinedPlayers };
       });
     });
@@ -290,6 +306,7 @@ export function attachSocketGateway(deps: {
             playerIds: left.removedPlayerIds,
           });
           io.to(left.room.roomId).emit(ServerEvents.ROOM_UPDATED, left.room);
+          broadcastLobbyRooms();
         }
         return { room: left?.room ?? null };
       });
@@ -300,6 +317,7 @@ export function attachSocketGateway(deps: {
         const input = parseWithAck(RoomResetSchema, rawPayload);
         const room = roomManager.resetRoom(clientInstanceId, input);
         io.to(room.roomId).emit(ServerEvents.ROOM_UPDATED, room);
+        broadcastLobbyRooms();
         return { room };
       });
     });
@@ -313,6 +331,7 @@ export function attachSocketGateway(deps: {
           input.ready,
         );
         io.to(room.roomId).emit(ServerEvents.ROOM_UPDATED, room);
+        broadcastLobbyRooms();
         return { room };
       });
     });
@@ -362,6 +381,7 @@ export function attachSocketGateway(deps: {
                   reason: 'DISCONNECT_TIMEOUT',
                 });
                 io.to(rid).emit(ServerEvents.ROOM_UPDATED, left.room);
+                broadcastLobbyRooms();
               }
             }
           },

@@ -56,6 +56,7 @@ export class MultiplayerModeModule implements GameModeServerModule {
   private roomId = '';
   private startedAt = 0;
   private endsAt = 0;
+  private durationMs = 60000;
   private maxJumpsPerSecond = 12;
   private scorePerJump = 10;
   private tracks = new Map<string, MultiplayerPlayerTrack>();
@@ -84,6 +85,7 @@ export class MultiplayerModeModule implements GameModeServerModule {
     this.roomId = context.roomId;
     this.startedAt = context.startedAt;
     this.endsAt = context.endsAt;
+    this.durationMs = Math.max(1000, context.endsAt - context.startedAt);
 
     const cfg = context.config;
     if (typeof cfg.maxJumpsPerSecond === 'number' && cfg.maxJumpsPerSecond > 0) {
@@ -128,6 +130,7 @@ export class MultiplayerModeModule implements GameModeServerModule {
 
   start(serverNow: number): void {
     this.startedAt = serverNow;
+    this.endsAt = serverNow + this.durationMs;
     for (const track of this.tracks.values()) {
       track.lastAcceptedAt = serverNow;
     }

@@ -56,7 +56,6 @@
   let localJumpState = new Map(); // playerId -> { totalJumps, rpm, autoTimer, bleConnected }
   let countdownEndServerTime = null;
   let uiTicker = null;
-  let roomListTimer = null;
   let ropeSeq = 1;
 
   const MAX_LOG_ENTRIES = 200;
@@ -92,10 +91,6 @@
     ui.btnJoinRoom.disabled = !connected;
     ui.btnLeaveRoom.disabled = !connected || !sdk?.getCurrentRoom();
     if (!connected) {
-      if (roomListTimer) {
-        clearInterval(roomListTimer);
-        roomListTimer = null;
-      }
       if (uiTicker) {
         clearInterval(uiTicker);
         uiTicker = null;
@@ -125,7 +120,7 @@
       ui.clientIdLabel.textContent = reg.clientInstanceId;
       setConnStatus(true);
       log(`Connected as ${reg.clientInstanceId} (max local: ${reg.maxLocalPlayers})`, 'ok');
-      startRoomListPolling();
+      void refreshAvailableRooms();
     });
 
     sdk.on('disconnected', ({ reason }) => {
@@ -138,7 +133,7 @@
       log(`Reconnected! Snapshot=${restoredSnapshot ? restoredSnapshot.status : 'none'}, Replays=${replayResults.length}`, 'ok');
       renderRoom(sdk.getCurrentRoom());
       renderLocalPlayers();
-      startRoomListPolling();
+      void refreshAvailableRooms();
       if (restoredSnapshot) renderSnapshot(restoredSnapshot);
     });
 
@@ -147,10 +142,14 @@
       ui.rttLabel.textContent = `${Math.round(rttMs)} ms`;
     });
 
+    sdk.on('rooms:updated', ({ rooms }) => {
+      ui.availableRoomsBox.classList.remove('hidden');
+      renderAvailableRooms(rooms || []);
+    });
+
     sdk.on('room:updated', (room) => {
       renderRoom(room);
       renderLocalPlayers();
-      void refreshAvailableRooms();
       ui.btnLeaveRoom.disabled = !sdk.isConnected() || !room;
     });
 
@@ -401,22 +400,6 @@
 
       ui.localPlayersList.appendChild(card);
     }
-  }
-
-  function startRoomListPolling() {
-    if (roomListTimer) clearInterval(roomListTimer);
-    void refreshAvailableRooms();
-    roomListTimer = setInterval(() => {
-      const status = sdk?.getCurrentRoom()?.status;
-      if (
-        sdk?.isConnected() &&
-        status !== 'PLAYING' &&
-        status !== 'STARTING' &&
-        status !== 'COUNTDOWN'
-      ) {
-        void refreshAvailableRooms();
-      }
-    }, 3000);
   }
 
   async function joinRoomByCode(code) {

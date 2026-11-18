@@ -178,9 +178,34 @@ export const ClientEvents = {
   GAME_STATE_REQUEST: 'game:state_request',
 } as const;
 
+export interface PublicRoomPlayer {
+  playerId: string;
+  displayName: string;
+  role: PlayerRoleType;
+  teamId: string | null;
+  deviceId: string | null;
+  ready: boolean;
+  connectionStatus: ConnectionStatusType;
+}
+
+export interface PublicRoomSummary {
+  roomId: string;
+  roomCode: string;
+  gameModeId: string;
+  ownerPlayerId: string | null;
+  status: RoomStateType;
+  maxPlayers: number;
+  players: PublicRoomPlayer[];
+  teams: TeamState[];
+  activeMatchId: string | null;
+  config: Record<string, unknown>;
+  createdAt: number;
+}
+
 export const ServerEvents = {
   CLIENT_REGISTERED: 'client:registered',
   ROOM_UPDATED: 'room:updated',
+  ROOMS_UPDATED: 'rooms:updated',
   PLAYER_JOINED: 'player:joined',
   PLAYER_LEFT: 'player:left',
   PLAYER_DISCONNECTED: 'player:disconnected',

@@ -58,6 +58,7 @@ export class BombPassModeModule implements GameModeServerModule {
   private roomId = '';
   private startedAt = 0;
   private endsAt = 0;
+  private durationMs = 60000;
   private fuseDurationMs = 12000;
   private jumpsRequiredToPass = 5;
 
@@ -103,6 +104,7 @@ export class BombPassModeModule implements GameModeServerModule {
     this.roomId = context.roomId;
     this.startedAt = context.startedAt;
     this.endsAt = context.endsAt;
+    this.durationMs = Math.max(1000, context.endsAt - context.startedAt);
 
     const cfg = context.config;
     if (typeof cfg.fuseDurationMs === 'number' && cfg.fuseDurationMs >= 1000) {
@@ -170,6 +172,7 @@ export class BombPassModeModule implements GameModeServerModule {
 
   start(serverNow: number): void {
     this.startedAt = serverNow;
+    this.endsAt = serverNow + this.durationMs;
     this.roundNumber = 1;
     this.currentHolderJumps = 0;
     this.bombHolderPlayerId = this.aliveOrder[0] ?? null;

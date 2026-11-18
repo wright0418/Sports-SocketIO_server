@@ -41,15 +41,21 @@
 
 ---
 
-## 2. 後續建議追蹤項目（尚未變更架構）
+## 2. 第二階段伺服器全面補強項目（已完成）
 
-以下項目涉及通訊協議或正式環境驗證策略，保留於下一階段依需求評估調整：
+1. **公開房間列表遮罩 `clientInstanceId` 與環境密鑰檢查**（[routes.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/http/routes.ts)、[RoomManager.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/managers/RoomManager.ts)、[config/index.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/config/index.ts)）
+   - 新增 `PublicRoomSummary`（`listPublicRooms()`），對外列表不回傳 `ownerClientInstanceId` 與玩家 `clientInstanceId`。
+   - `NODE_ENV=production` 時若未提供 `JWT_SECRET` 直接拒絕啟動，若仍使用預設開發密鑰則輸出警告。
+2. **Lobby 即時房間列表推播（`rooms:updated`）**（[gateway.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/socket/gateway.ts)、[MatchManager.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/managers/MatchManager.ts)、[EduSportsMultiplayer.ts](file:///mnt/Project/GameServre-socketIO/packages/sdk/src/EduSportsMultiplayer.ts)、[app.js](file:///mnt/Project/GameServre-socketIO/packages/test-client/app.js)）
+   - 連線註冊後自動加入 `lobby` Room，房間建立／加入／離開／準備／重置／開賽／完賽時即時廣播 `rooms:updated`，並移除前端 3 秒輪詢定時器。
+3. **重複連線清理、保留期到期記憶體回收與裝置解綁**（[PlayerManager.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/managers/PlayerManager.ts)、[gateway.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/socket/gateway.ts)）
+   - 同一 `clientInstanceId` 建立新連線時主動斷開舊 Socket；30 秒斷線保留期到期後清理離線 `clients` / `players` / `devices`；`assignedPlayerId: null` 時同步清除原玩家 `deviceId`。
+4. **模式時間基準同步與資料庫批次寫入**（[multiplayerMode.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/modes/multiplayerMode.ts)、[bombPassMode.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/modes/bombPassMode.ts)、[persistence.ts](file:///mnt/Project/GameServre-socketIO/packages/server/src/db/persistence.ts)）
+   - `start(serverNow)` 同步重算 `endsAt` 與實際開賽時間對齊；`finishMatch()` 改為單次多筆批次寫入 `match_participants`；`toSnapshot()` 改為純讀取不就地改寫 `room.teams`；補齊 DB 寫入錯誤日誌。
 
-1. **Session Token 簽發與環境密鑰強化**
-   - 建議在正式環境強制要求設定 `JWT_SECRET`（移除開發預設字串回退），並評估將 `POST /api/auth/session` 改為由後端隨機核發或綁定驗證資訊，避免 `RoomSnapshot` 中的 `ownerClientInstanceId` 被他人用來冒名簽發 Token。
-2. **離線／跨局計數器與過期玩家清理**
-   - `PlayerManager` 在斷線保留期（30 秒）到期後可進一步清理無關聯的離線 `clients` / `players` / `devices` 快取；SDK 的 `lastTickSentAt` 與 `sequenceCounters` 亦可依房間／賽局結束時機清理。
-3. **批次準備與資料庫寫入最佳化**
-   - SDK 的 `setAllLocalPlayersReady` 目前逐一發送 `player:ready`，未來可擴充支援批次事件以減少多次 `room:updated` 廣播；`PersistenceService.finishMatch` 可將迴圈 `upsert` 改為單次多筆批次寫入。
-4. **Socket 重複連線處理與 `toSnapshot` 純函數化**
-   - 同一 `clientInstanceId` 建立新 Socket 連線時，可考慮主動踢除或清理舊 Socket 的房間訂閱；`RoomManager.toSnapshot()` 建議避免在純查詢路徑中就地改寫 `room.teams`。
+---
+
+## 3. 後續可選擴充方向
+
+1. **多實例水平擴充**：未來單機負載飽和需部署多個 Server 實例時，導入 `@socket.io/redis-adapter` 搭配 Sticky Sessions。
+2. **新遊戲模式擴充**：依 `GameModeServerModule` 介面實作更多遊戲模式。

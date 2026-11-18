@@ -5,6 +5,7 @@ import {
   PlayerRole,
   RoomState,
   type PlayerState,
+  type PublicRoomSummary,
   type RoomSnapshot,
   type RoomStateType,
   type TeamState,
@@ -392,6 +393,35 @@ export class RoomManager {
       .map((r) => this.toSnapshot(r));
   }
 
+  listPublicRooms(): PublicRoomSummary[] {
+    return Array.from(this.rooms.values())
+      .filter((r) => r.status !== RoomState.CLOSED)
+      .map((r) => {
+        const snap = this.toSnapshot(r);
+        return {
+          roomId: snap.roomId,
+          roomCode: snap.roomCode,
+          gameModeId: snap.gameModeId,
+          ownerPlayerId: snap.ownerPlayerId,
+          status: snap.status,
+          maxPlayers: snap.maxPlayers,
+          players: snap.players.map((p) => ({
+            playerId: p.playerId,
+            displayName: p.displayName,
+            role: p.role,
+            teamId: p.teamId,
+            deviceId: p.deviceId,
+            ready: p.ready,
+            connectionStatus: p.connectionStatus,
+          })),
+          teams: snap.teams,
+          activeMatchId: snap.activeMatchId,
+          config: snap.config,
+          createdAt: snap.createdAt,
+        };
+      });
+  }
+
   getActiveParticipants(room: RoomRecord): PlayerState[] {
     return Array.from(room.players.values()).filter(
       (p) => p.role === PlayerRole.PLAYER,
@@ -400,7 +430,7 @@ export class RoomManager {
 
   toSnapshot(room: RoomRecord): RoomSnapshot {
     const players = Array.from(room.players.values()).map((p) => ({ ...p }));
-    room.teams = this.teamManager.buildTeamsFromPlayers(
+    const teams = this.teamManager.buildTeamsFromPlayers(
       players.filter((p) => p.role === PlayerRole.PLAYER),
     );
     return {
@@ -412,7 +442,7 @@ export class RoomManager {
       status: room.status,
       maxPlayers: room.maxPlayers,
       players,
-      teams: room.teams,
+      teams,
       activeMatchId: room.activeMatchId,
       config: room.config,
       createdAt: room.createdAt,
