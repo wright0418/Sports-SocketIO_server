@@ -37,7 +37,9 @@ export function createHttpApp(deps: {
   );
   app.use(express.json({ limit: '1mb' }));
 
-  app.get('/health', (_req, res) => {
+  const router = express.Router();
+
+  router.get('/health', (_req, res) => {
     res.json({
       ok: true,
       status: 'healthy',
@@ -46,7 +48,7 @@ export function createHttpApp(deps: {
     });
   });
 
-  app.post('/api/auth/session', (req, res) => {
+  router.post('/api/auth/session', (req, res) => {
     const parsed = AuthSessionBodySchema.safeParse(req.body ?? {});
     if (!parsed.success) {
       res.status(400).json({
@@ -88,21 +90,21 @@ export function createHttpApp(deps: {
     });
   });
 
-  app.get('/api/modes', (_req, res) => {
+  router.get('/api/modes', (_req, res) => {
     res.json({
       ok: true,
       modes: deps.modeRegistry.listMetadata(),
     });
   });
 
-  app.get('/api/rooms', (_req, res) => {
+  router.get('/api/rooms', (_req, res) => {
     res.json({
       ok: true,
       rooms: deps.roomManager.listRooms(),
     });
   });
 
-  app.get('/api/rooms/:codeOrId', (req, res) => {
+  router.get('/api/rooms/:codeOrId', (req, res) => {
     const room = deps.roomManager.getRoom(req.params.codeOrId);
     if (!room) {
       res.status(404).json({
@@ -120,7 +122,7 @@ export function createHttpApp(deps: {
     });
   });
 
-  app.get('/api/matches/:matchId', async (req, res) => {
+  router.get('/api/matches/:matchId', async (req, res) => {
     const inMem = deps.matchManager.getFinishedResult(req.params.matchId);
     if (inMem) {
       res.json({ ok: true, result: inMem });
@@ -154,10 +156,29 @@ export function createHttpApp(deps: {
   // Static hosting for SDK bundle and test-client HTML game (supports root and sub-path hosting)
   const sdkDistDir = path.resolve(__dirname, '../../../sdk/dist');
   const testClientDir = path.resolve(__dirname, '../../../test-client');
-  app.use('/sdk', express.static(sdkDistDir));
-  app.use('/test-client/sdk', express.static(sdkDistDir));
-  app.use('/test-client', express.static(testClientDir));
-  app.use('/', express.static(testClientDir));
+  router.use('/sdk', express.static(sdkDistDir));
+  router.use('/test-client/sdk', express.static(sdkDistDir));
+  router.use('/test-client', express.static(testClientDir));
+  router.use('/', express.static(testClientDir));
+
+  // Support both Caddy handle_path (stripped) and handle (unstripped) subpath forwarding
+  app.use('/games-server', (req, res, next) => {
+    if (req.originalUrl === '/games-server') {
+      res.redirect(301, '/games-server/');
+      return;
+    }
+    next();
+  }, router);
+
+  app.use('/sports-server', (req, res, next) => {
+    if (req.originalUrl === '/sports-server') {
+      res.redirect(301, '/sports-server/');
+      return;
+    }
+    next();
+  }, router);
+
+  app.use('/', router);
 
   return app;
 }
